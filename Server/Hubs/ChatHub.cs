@@ -17,9 +17,11 @@ namespace BlazorWebAssemblySignalRApp.Server.Hubs
 
         public async Task FileUpload(string fileName, int percent, byte[] file)
         {
-            _logger.LogInformation("recieved_file " + fileName + ", percent " + percent);
+            string[] paths = { Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), fileName };
 
-            var filePath = @"C:\\Users\\kuzon\\Documents\\" + fileName;
+            var filePath = System.IO.Path.Combine(paths);
+
+            _logger.LogInformation("recieved_file " + filePath + ", percent " + percent);
 
             if (percent == 0 && System.IO.File.Exists(filePath))
             {
