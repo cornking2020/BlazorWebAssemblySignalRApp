@@ -1,0 +1,137 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<PageTitle>Index</PageTitle>
+
+<div class="form-group">
+    <label>
+        User:
+        <input @bind="userInput" />
+    </label>
+</div>
+<div class="form-group">
+    <label>
+        Message:
+        <input @bind="messageInput" size="50" />
+    </label>
+    <label>
+        File:
+        <InputFile OnChange="@HandleFileSelection" disabled="@(!IsConnected)" />
+    </label>
+</div>
+<button @onclick="Send" disabled="@(!IsConnected)">Send</button>
+
+<hr>
+
+<ul id="messagesList">
+    <li>@_percent</li>
+    @foreach (var message in messages)
+    {
+        <li>@message</li>
+    }
+</ul>
+
+@code {
+    private HubConnection? hubConnection;
+    private List<string> messages = new List<string>();
+    private string? userInput;
+    private string? messageInput;
+    private long _percent = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/chathub"))
+            .Build();
+
+        hubConnection.On<string, string>("ReceiveMessage", (user, message) =>
+        {
+            var encodedMsg = $"{user}: {message}";
+            messages.Add(encodedMsg);
+            StateHasChanged();
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    private async Task Send()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.SendAsync("SendMessage", userInput, messageInput);
+        }
+    }
+
+    private async Task HandleFileSelection(InputFileChangeEventArgs e)
+    {
+        if (hubConnection is not null)
+        {
+            const int CHUNK_LIMIT = 100 * 1024 * 1024;
+
+            var file = e.File;
+            string fileName = file.Name;
+            long uploadedBytes = 0;
+            long totalBytes = file.Size;
+            long percent = 0;
+            long chunkSize = CHUNK_LIMIT;
+            messages.Add("Processing " + fileName + ", total bytes: " + totalBytes);
+
+            using (var inStream = file.OpenReadStream(long.MaxValue))
+            {
+                while (percent < 100)
+                {
+                    if (uploadedBytes + CHUNK_LIMIT > totalBytes)
+                    {
+                        chunkSize = totalBytes - uploadedBytes;
+                    }
+
+                    var chunk = new byte[chunkSize];
+                    await inStream.ReadAsync(chunk, 0, chunk.Length);
+                    await hubConnection.SendAsync("FileUpload", fileName, percent, chunk);
+
+                    uploadedBytes += chunkSize;
+                    percent = uploadedBytes * 100 / totalBytes;
+
+                    //messages.Add("Uploaded " + percent + "%, Fragment: " + fragment++);
+                    _percent = percent;
+
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+
+            //MemoryStream ms = new MemoryStream();
+            //await file.OpenReadStream(file.Size).CopyToAsync(ms);
+
+
+            //messages.Add("Copy file to memory stream, size: " + ms.Length);
+
+            //int bytesRead = 0;
+
+            //while (bytesRead < file.Size)
+            //{
+            //    byte[] slice = new byte[sliceSize];
+
+            //    file.OpenReadStream(file.Size).Read(slice, bytesRead, sliceSize);
+
+            //    await hubConnection.SendAsync("FileUpload", file.Name, slice);
+
+            //    bytesRead += sliceSize;
+
+            //    messages.Add("Processing " + bytesRead + "/" + file.Size);
+            //}
+        }
+    }
+
+    public bool IsConnected =>
+        hubConnection?.State == HubConnectionState.Connected;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
