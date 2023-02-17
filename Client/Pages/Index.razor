@@ -3,25 +3,21 @@
 @inject NavigationManager Navigation
 @implements IAsyncDisposable
 
-<PageTitle>Index</PageTitle>
+<PageTitle>File Upload</PageTitle>
 
 <div class="form-group">
-    <label>
-        User:
-        <input @bind="userInput" />
-    </label>
-</div>
-<div class="form-group">
-    <label>
-        Message:
-        <input @bind="messageInput" size="50" />
-    </label>
     <label>
         File:
         <InputFile OnChange="@HandleFileSelection" disabled="@(!IsConnected)" />
     </label>
 </div>
-<button @onclick="Send" disabled="@(!IsConnected)">Send</button>
+<div class="form-group">
+    <label>
+        File Name:
+        <input @bind="fileNameInput" />
+    </label>
+</div>
+<button @onclick="FileMerge" disabled="@(!IsConnected)">Send</button>
 
 <hr>
 
@@ -36,8 +32,7 @@
 @code {
     private HubConnection? hubConnection;
     private List<string> messages = new List<string>();
-    private string? userInput;
-    private string? messageInput;
+    private string? fileNameInput;
     private long _percent = 0;
 
     protected override async Task OnInitializedAsync()
@@ -56,14 +51,6 @@
         await hubConnection.StartAsync();
     }
 
-    private async Task Send()
-    {
-        if (hubConnection is not null)
-        {
-            await hubConnection.SendAsync("SendMessage", userInput, messageInput);
-        }
-    }
-
     private async Task HandleFileSelection(InputFileChangeEventArgs e)
     {
         if (hubConnection is not null)
@@ -76,6 +63,9 @@
             long totalBytes = file.Size;
             long percent = 0;
             long chunkSize = CHUNK_LIMIT;
+            long totalChunkCount = totalBytes / chunkSize + 1;
+
+            long index = 0;
             messages.Add("Processing " + fileName + ", total bytes: " + totalBytes);
 
             using (var inStream = file.OpenReadStream(long.MaxValue))
@@ -89,43 +79,30 @@
 
                     var chunk = new byte[chunkSize];
                     await inStream.ReadAsync(chunk, 0, chunk.Length);
-                    await hubConnection.SendAsync("FileUpload", fileName, percent, chunk);
+                    await hubConnection.SendAsync("FileUpload", fileName, index, chunk);
 
                     uploadedBytes += chunkSize;
                     percent = uploadedBytes * 100 / totalBytes;
 
-                    //messages.Add("Uploaded " + percent + "%, Fragment: " + fragment++);
                     _percent = percent;
+                    index++;
 
                     await InvokeAsync(StateHasChanged);
                 }
             }
+        }
+    }
 
-            //MemoryStream ms = new MemoryStream();
-            //await file.OpenReadStream(file.Size).CopyToAsync(ms);
-
-
-            //messages.Add("Copy file to memory stream, size: " + ms.Length);
-
-            //int bytesRead = 0;
-
-            //while (bytesRead < file.Size)
-            //{
-            //    byte[] slice = new byte[sliceSize];
-
-            //    file.OpenReadStream(file.Size).Read(slice, bytesRead, sliceSize);
-
-            //    await hubConnection.SendAsync("FileUpload", file.Name, slice);
-
-            //    bytesRead += sliceSize;
-
-            //    messages.Add("Processing " + bytesRead + "/" + file.Size);
-            //}
+    private async Task FileMerge()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.SendAsync("FileMerge", fileNameInput);
         }
     }
 
     public bool IsConnected =>
-        hubConnection?.State == HubConnectionState.Connected;
+hubConnection?.State == HubConnectionState.Connected;
 
     public async ValueTask DisposeAsync()
     {
